@@ -1,11 +1,11 @@
-interface ImageEdge {
+export interface ImageEdge {
   node: {
     originalSrc: string;
     altText: string | null;
   };
 }
 
-interface VariantEdge {
+export interface VariantEdge {
   node: {
     id: string;
     title: string;

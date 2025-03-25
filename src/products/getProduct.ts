@@ -5,6 +5,7 @@ import { normalizeMetafields } from "../utils/normalizeMetafields";
 import { CustomMetafieldDefinition } from "../types/metafields";
 import { FetchProductResult, Product } from "../types/product";
 import { getProductByIdQuery } from "../graphql/queries/getProductById";
+import { ImageEdge, VariantEdge } from "../types/edges";
 
 export interface GetProductOptions {
   id?: string;
