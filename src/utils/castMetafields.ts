@@ -42,6 +42,7 @@ export function castMetafields(
     if (rawValue !== undefined) {
       result[namespace] = result[namespace] || {};
       if (def.type === "rich_text" && renderRichTextAsHtml) {
+        console.log(`Rendering rich text for ${def.field}:`, rawValue);
         result[namespace][key] = renderRichText(rawValue);
       } else {
         result[namespace][key] = castMetafieldValue(rawValue, def.type);
