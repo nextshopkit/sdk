@@ -196,6 +196,7 @@ function castMetafieldValue(rawValue, type) {
 function renderRichText(schema, options = {}) {
   let { scoped, classes, newLineToBreak } = options;
   let html = "";
+  console.log("renderRichText", schema, options);
   if (typeof schema === "string") {
     try {
       schema = JSON.parse(schema);
@@ -350,7 +351,7 @@ async function getProduct(options) {
     variantLimit,
     transformMetafields,
     locale,
-    returnFullResponse,
+    returnFullResponse = false,
     resolveReferences
   } = settings;
   if (!handle && !id) {

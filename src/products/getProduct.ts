@@ -26,9 +26,9 @@ export interface GetProductOptions {
       casted: Record<string, any>,
       definitions: ResolvedMetafieldInfo[]
     ) => Record<string, any>;
-    locale: string;
-    returnFullResponse: boolean;
-    resolveReferences: true;
+    locale?: string;
+    returnFullResponse?: boolean;
+    resolveReferences?: boolean;
   };
 }
 
@@ -43,7 +43,7 @@ export async function getProduct(
     variantLimit,
     transformMetafields,
     locale,
-    returnFullResponse,
+    returnFullResponse = false,
     resolveReferences,
   } = settings;
 
@@ -51,18 +51,18 @@ export async function getProduct(
     return { data: null, error: "Either handle or id must be provided" };
   }
 
-  // Build metafield identifiers if definitions are provided.
+  // Build metafield identifiers based on the provided definitions.
   const metafieldIdentifiers =
     customMetafields.length > 0
       ? buildMetafieldIdentifiers(customMetafields)
       : "";
 
-  // Choose the query based on provided identifier (id vs. handle).
+  // Choose the proper query based on the provided identifier.
   const query = id
     ? getProductByIdQuery(metafieldIdentifiers)
     : getProductByHandleQuery(metafieldIdentifiers);
 
-  // Pass locale if needed (for localized fields)
+  // Pass locale if available (for localized fields).
   const variables = id ? { id } : { handle, locale };
 
   try {
@@ -75,17 +75,16 @@ export async function getProduct(
       };
     }
 
-    // For id query, Shopify returns the product under "node".
-    // For handle query, it returns it under "productByHandle".
+    // For id query, product is returned as "node"; for handle query, as "productByHandle".
     const node = id ? json.data?.node : json.data?.productByHandle;
 
     if (!node) {
       return { data: null, error: "Product not found" };
     }
 
-    // Normalize raw metafields from Shopify.
+    // Normalize raw metafields (e.g. transform keys "custom.category" into nested objects)
     const rawMetafields = normalizeMetafields(node.metafields || []);
-    // Cast metafields using definitions and optionally transform them.
+    // Cast the metafields to proper JS types, optionally transforming them.
     const metafields =
       customMetafields.length > 0
         ? castMetafields(
@@ -96,7 +95,7 @@ export async function getProduct(
           )
         : rawMetafields;
 
-    // Process images; apply imageLimit if provided.
+    // Process images and apply imageLimit if provided.
     let images = (node.images.edges ?? []).map((edge: ImageEdge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null,
@@ -105,7 +104,7 @@ export async function getProduct(
       images = images.slice(0, imageLimit);
     }
 
-    // Process variants; apply variantLimit if provided.
+    // Process variants and apply variantLimit if provided.
     let variants = (node.variants.edges ?? []).map((edge: VariantEdge) => {
       const variant = edge.node;
       return {
@@ -139,10 +138,9 @@ export async function getProduct(
       metafields,
     };
 
-    // Optionally include the full raw Shopify response for debugging or other needs.
+    // Optionally include the full raw Shopify response for debugging.
     const fullResponse = includeRawMetafields ? json : undefined;
 
-    // If returnFullResponse is true, attach the raw response to the result.
     return { data: product, error: null, fullResponse };
   } catch (err) {
     return {

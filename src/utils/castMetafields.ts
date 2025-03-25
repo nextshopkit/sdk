@@ -31,7 +31,7 @@ export function castMetafields(
     const [namespace, key] = def.field.split(".");
     const rawValue = normalizedMetafields?.[namespace]?.[key];
 
-    // Record resolved definition info
+    // Build the resolved definition info for further processing.
     resolvedDefs.push({
       namespace,
       key,

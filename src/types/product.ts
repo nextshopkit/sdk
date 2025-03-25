@@ -22,7 +22,7 @@ export interface Product {
   variants: Variant[];
   price: { amount: string; currencyCode: string };
   compareAtPrice?: { amount: string; currencyCode: string } | null;
-  metafields: Record<string, unknown>;
+  metafields: Record<string, any>; // instead of unknown
 }
 
 export interface FetchProductResult {

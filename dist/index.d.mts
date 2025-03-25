@@ -48,7 +48,7 @@ interface Product {
         amount: string;
         currencyCode: string;
     } | null;
-    metafields: Record<string, unknown>;
+    metafields: Record<string, any>;
 }
 interface FetchProductResult {
     data: Product | null;
@@ -66,9 +66,9 @@ interface GetProductOptions {
         imageLimit?: number;
         variantLimit?: number;
         transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any>;
-        locale: string;
-        returnFullResponse: boolean;
-        resolveReferences: true;
+        locale?: string;
+        returnFullResponse?: boolean;
+        resolveReferences?: boolean;
     };
 }
 declare function getProduct(options: GetProductOptions): Promise<FetchProductResult>;
