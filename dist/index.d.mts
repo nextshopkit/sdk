@@ -1,9 +1,15 @@
-declare const PrimitiveTypes: readonly ["single_line_text", "multi_line_text", "integer", "decimal", "true_false", "json", "date", "date_and_time", "money", "rating", "url", "color", "id"];
+declare const PrimitiveTypes: readonly ["single_line_text", "multi_line_text", "rich_text", "integer", "decimal", "true_false", "json", "date", "date_and_time", "money", "rating", "url", "color", "id"];
 declare const ReferenceTypes: readonly ["Product", "Product_variant", "Customer", "Company", "Page", "Collection", "File", "Metaobject"];
 declare const UnitTypes: readonly ["weight", "dimension", "volume"];
 type ShopifyCustomFieldType = (typeof PrimitiveTypes)[number] | (typeof ReferenceTypes)[number] | (typeof UnitTypes)[number];
 interface CustomMetafieldDefinition {
     field: string;
+    type: ShopifyCustomFieldType;
+}
+interface ResolvedMetafieldInfo {
+    key: string;
+    namespace: string;
+    fullKey: string;
     type: ShopifyCustomFieldType;
 }
 
@@ -47,12 +53,23 @@ interface Product {
 interface FetchProductResult {
     data: Product | null;
     error: string | null;
+    fullResponse?: unknown;
 }
 
 interface GetProductOptions {
     id?: string;
     handle?: string;
     customMetafields?: CustomMetafieldDefinition[];
+    options: {
+        renderRichTextAsHtml?: boolean;
+        includeRawMetafields?: boolean;
+        imageLimit?: number;
+        variantLimit?: number;
+        transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any>;
+        locale: string;
+        returnFullResponse: boolean;
+        resolveReferences: true;
+    };
 }
 declare function getProduct(options: GetProductOptions): Promise<FetchProductResult>;
 

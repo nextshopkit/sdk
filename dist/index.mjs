@@ -1,41 +1,3 @@
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// src/utils/buildMetafieldIdentifiers.ts
-var buildMetafieldIdentifiers_exports = {};
-__export(buildMetafieldIdentifiers_exports, {
-  buildMetafieldIdentifiers: () => buildMetafieldIdentifiers
-});
-function buildMetafieldIdentifiers(metafields) {
-  return metafields.map(({ field }) => {
-    const [namespace, key] = field.split(".");
-    return `{ namespace: "${namespace}", key: "${key}" }`;
-  }).join(",\n");
-}
-var init_buildMetafieldIdentifiers = __esm({
-  "src/utils/buildMetafieldIdentifiers.ts"() {
-    "use strict";
-  }
-});
-
 // src/graphql/client.ts
 var SHOPIFY_GRAPHQL_URL = process.env.SHOPIFY_GRAPHQL_URL;
 var SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
@@ -97,16 +59,6 @@ var getProductByHandleQuery = (metafieldIdentifiers) => `
   }
 `;
 
-// src/utils/normalizeMetafields.ts
-function normalizeMetafields(metafields) {
-  return metafields.reduce((acc, field) => {
-    if (field?.key) {
-      acc[field.key] = field.value;
-    }
-    return acc;
-  }, {});
-}
-
 // src/graphql/queries/getProductById.ts
 var getProductByIdQuery = (metafieldIdentifiers) => `
   query getProductById($id: ID!) {
@@ -148,32 +100,266 @@ var getProductByIdQuery = (metafieldIdentifiers) => `
   }
 `;
 
+// src/utils/buildMetafieldIdentifiers.ts
+function buildMetafieldIdentifiers(metafields) {
+  return metafields.map(({ field }) => {
+    const [namespace, key] = field.split(".");
+    return `{ namespace: "${namespace}", key: "${key}" }`;
+  }).join(",\n");
+}
+
+// src/utils/normalizeMetafields.ts
+function normalizeMetafields(metafields) {
+  const result = {};
+  for (const field of metafields) {
+    if (!field?.key)
+      continue;
+    const [namespace, key] = field.key.includes(".") ? field.key.split(".") : ["global", field.key];
+    if (!result[namespace]) {
+      result[namespace] = {};
+    }
+    result[namespace][key] = field.value;
+  }
+  return result;
+}
+
+// src/utils/castMetafieldValue.ts
+function castMetafieldValue(rawValue, type) {
+  switch (type) {
+    case "integer":
+    case "decimal":
+    case "money":
+    case "rating":
+    case "weight":
+    case "volume":
+    case "dimension":
+      return Number(rawValue);
+    case "true_false":
+      return rawValue === "true";
+    case "json":
+      try {
+        return JSON.parse(rawValue);
+      } catch {
+        return rawValue;
+      }
+    case "date":
+    case "date_and_time":
+      return new Date(rawValue);
+    case "color":
+    case "url":
+    case "id":
+    case "single_line_text":
+    case "multi_line_text":
+    case "rich_text":
+      return rawValue;
+    case "Product":
+    case "Product_variant":
+    case "Customer":
+    case "Company":
+    case "Page":
+    case "Collection":
+    case "File":
+    case "Metaobject":
+      return rawValue;
+    default:
+      return rawValue;
+  }
+}
+
+// src/utils/renderRichText.ts
+function renderRichText(schema, options = {}) {
+  let { scoped, classes, newLineToBreak } = options;
+  let html = "";
+  if (typeof schema === "string") {
+    try {
+      schema = JSON.parse(schema);
+    } catch (error) {
+      console.error("Error parsing rich text schema:", error);
+      return schema;
+    }
+  }
+  if (typeof options === "string" || typeof options === "boolean") {
+    scoped = options;
+  }
+  if (schema && schema.type === "root" && Array.isArray(schema.children) && schema.children.length > 0) {
+    if (scoped) {
+      const className = scoped === true ? "rte" : scoped;
+      html += `<div class="${className}">${renderRichText(
+        schema.children,
+        options
+      )}</div>`;
+    } else {
+      html += renderRichText(schema.children, options);
+    }
+  } else if (Array.isArray(schema)) {
+    for (const el of schema) {
+      switch (el.type) {
+        case "paragraph":
+          html += buildParagraph(el, options);
+          break;
+        case "heading":
+          html += buildHeading(el, options);
+          break;
+        case "list":
+          html += buildList(el, options);
+          break;
+        case "list-item":
+          html += buildListItem(el, options);
+          break;
+        case "link":
+          html += buildLink(el, options);
+          break;
+        case "text":
+          html += buildText(el, options);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  return html;
+}
+function getClass(tag, classes) {
+  if (classes && classes[tag]) {
+    return classes[tag];
+  }
+  return null;
+}
+function outputAttributes(attributes) {
+  if (!attributes)
+    return "";
+  return Object.keys(attributes).filter((key) => attributes[key]).map((key) => ` ${key}="${attributes[key]}"`).join("");
+}
+function createElement(tag, classes, content, attributes = {}) {
+  const className = getClass(tag, classes);
+  if (className) {
+    attributes = { ...attributes, class: className };
+  }
+  return `<${tag}${outputAttributes(attributes)}>${content}</${tag}>`;
+}
+function buildParagraph(el, options) {
+  const { classes } = options;
+  return createElement("p", classes, renderRichText(el?.children, options));
+}
+function buildHeading(el, options) {
+  const { classes } = options;
+  const tag = `h${el?.level || 1}`;
+  return createElement(tag, classes, renderRichText(el?.children, options));
+}
+function buildList(el, options) {
+  const { classes } = options;
+  const tag = el?.listType === "ordered" ? "ol" : "ul";
+  return createElement(tag, classes, renderRichText(el?.children, options));
+}
+function buildListItem(el, options) {
+  const { classes } = options;
+  return createElement("li", classes, renderRichText(el?.children, options));
+}
+function buildLink(el, options) {
+  const { classes } = options;
+  const attributes = {
+    href: el?.url,
+    title: el?.title,
+    target: el?.target
+  };
+  return createElement(
+    "a",
+    classes,
+    renderRichText(el?.children, options),
+    attributes
+  );
+}
+function buildText(el, options) {
+  const { classes, newLineToBreak } = options;
+  if (el?.bold && el?.italic) {
+    return createElement(
+      "strong",
+      classes,
+      createElement("em", classes, el?.value)
+    );
+  } else if (el?.bold) {
+    return createElement("strong", classes, el?.value);
+  } else if (el?.italic) {
+    return createElement("em", classes, el?.value);
+  } else {
+    return newLineToBreak ? el?.value?.replace(/\n/g, "<br>") || "" : el?.value || "";
+  }
+}
+
+// src/utils/castMetafields.ts
+function castMetafields(normalizedMetafields, definitions, renderRichTextAsHtml, transformMetafields) {
+  const result = {};
+  const resolvedDefs = [];
+  for (const def of definitions) {
+    const [namespace, key] = def.field.split(".");
+    const rawValue = normalizedMetafields?.[namespace]?.[key];
+    resolvedDefs.push({
+      namespace,
+      key,
+      fullKey: def.field,
+      type: def.type
+    });
+    if (rawValue !== void 0) {
+      result[namespace] = result[namespace] || {};
+      if (def.type === "rich_text" && renderRichTextAsHtml) {
+        result[namespace][key] = renderRichText(rawValue);
+      } else {
+        result[namespace][key] = castMetafieldValue(rawValue, def.type);
+      }
+    }
+  }
+  if (transformMetafields) {
+    return transformMetafields(normalizedMetafields, result, resolvedDefs);
+  }
+  return result;
+}
+
 // src/products/getProduct.ts
 async function getProduct(options) {
-  const { handle, id, customMetafields = [] } = options;
-  const metafieldIdentifiers = customMetafields.length > 0 ? (init_buildMetafieldIdentifiers(), __toCommonJS(buildMetafieldIdentifiers_exports)).buildMetafieldIdentifiers(
-    customMetafields
-  ) : "";
+  const { handle, id, customMetafields = [], options: settings } = options;
+  const {
+    renderRichTextAsHtml = false,
+    includeRawMetafields = false,
+    imageLimit,
+    variantLimit,
+    transformMetafields,
+    locale,
+    returnFullResponse,
+    resolveReferences
+  } = settings;
   if (!handle && !id) {
     return { data: null, error: "Either handle or id must be provided" };
   }
+  const metafieldIdentifiers = customMetafields.length > 0 ? buildMetafieldIdentifiers(customMetafields) : "";
   const query = id ? getProductByIdQuery(metafieldIdentifiers) : getProductByHandleQuery(metafieldIdentifiers);
-  const variables = id ? { id } : { handle };
+  const variables = id ? { id } : { handle, locale };
   try {
-    const json = await fetchShopify(query, { handle });
-    if (json.errors && json.errors.length > 0) {
-      return { data: null, error: json.errors[0]?.message || "GraphQL error" };
+    const json = await fetchShopify(query, variables);
+    if (json.errors?.length) {
+      return {
+        data: null,
+        error: json.errors[0]?.message || "GraphQL error"
+      };
     }
-    const node = json.data?.productByHandle;
+    const node = id ? json.data?.node : json.data?.productByHandle;
     if (!node) {
       return { data: null, error: "Product not found" };
     }
-    const metafields = normalizeMetafields(node.metafields || []);
-    const images = (node.images.edges ?? []).map((edge) => ({
+    const rawMetafields = normalizeMetafields(node.metafields || []);
+    const metafields = customMetafields.length > 0 ? castMetafields(
+      rawMetafields,
+      customMetafields,
+      renderRichTextAsHtml,
+      transformMetafields
+    ) : rawMetafields;
+    let images = (node.images.edges ?? []).map((edge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null
     }));
-    const variants = (node.variants.edges ?? []).map((edge) => {
+    if (imageLimit && images.length > imageLimit) {
+      images = images.slice(0, imageLimit);
+    }
+    let variants = (node.variants.edges ?? []).map((edge) => {
       const variant = edge.node;
       return {
         id: variant.id,
@@ -183,6 +369,9 @@ async function getProduct(options) {
         compareAtPrice: variant.compareAtPriceV2 ?? null
       };
     });
+    if (variantLimit && variants.length > variantLimit) {
+      variants = variants.slice(0, variantLimit);
+    }
     const defaultPrice = variants[0]?.price || {
       amount: "0",
       currencyCode: "EUR"
@@ -200,7 +389,8 @@ async function getProduct(options) {
       compareAtPrice: defaultCompareAtPrice,
       metafields
     };
-    return { data: product, error: null };
+    const fullResponse = includeRawMetafields ? json : void 0;
+    return { data: product, error: null, fullResponse };
   } catch (err) {
     return {
       data: null,
