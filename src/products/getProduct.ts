@@ -1,11 +1,14 @@
 import { fetchShopify } from "../graphql/client";
 import { getProductByHandleQuery } from "../graphql/queries/getProductByHandle";
-import { safeParseArray } from "../utils/safeParseArray";
+import { getProductByIdQuery } from "../graphql/queries/getProductById";
+import { buildMetafieldIdentifiers } from "../utils/buildMetafieldIdentifiers";
 import { normalizeMetafields } from "../utils/normalizeMetafields";
+
+import { safeParseArray } from "../utils/safeParseArray";
 import { CustomMetafieldDefinition } from "../types/metafields";
 import { FetchProductResult, Product } from "../types/product";
-import { getProductByIdQuery } from "../graphql/queries/getProductById";
 import { ImageEdge, VariantEdge } from "../types/edges";
+import { castMetafields } from "../utils/castMetafields";
 
 export interface GetProductOptions {
   id?: string;
@@ -17,16 +20,15 @@ export async function getProduct(
   options: GetProductOptions
 ): Promise<FetchProductResult> {
   const { handle, id, customMetafields = [] } = options;
-  const metafieldIdentifiers =
-    customMetafields.length > 0
-      ? require("../utils/buildMetafieldIdentifiers").buildMetafieldIdentifiers(
-          customMetafields
-        )
-      : "";
 
   if (!handle && !id) {
     return { data: null, error: "Either handle or id must be provided" };
   }
+
+  const metafieldIdentifiers =
+    customMetafields.length > 0
+      ? buildMetafieldIdentifiers(customMetafields)
+      : "";
 
   const query = id
     ? getProductByIdQuery(metafieldIdentifiers)
@@ -35,25 +37,35 @@ export async function getProduct(
   const variables = id ? { id } : { handle };
 
   try {
-    const json = await fetchShopify(query, { handle });
-    if (json.errors && json.errors.length > 0) {
-      return { data: null, error: json.errors[0]?.message || "GraphQL error" };
+    const json = await fetchShopify(query, variables);
+
+    if (json.errors?.length) {
+      return {
+        data: null,
+        error: json.errors[0]?.message || "GraphQL error",
+      };
     }
-    const node = json.data?.productByHandle;
+
+    const node = id ? json.data?.node : json.data?.productByHandle;
+
     if (!node) {
       return { data: null, error: "Product not found" };
     }
 
-    // Normalize metafields using the helper
-    const metafields = normalizeMetafields(node.metafields || []);
+    // Normalize & Cast metafields
+    const rawMetafields = normalizeMetafields(node.metafields || []);
+    const metafields =
+      customMetafields.length > 0
+        ? castMetafields(rawMetafields, customMetafields)
+        : rawMetafields;
 
-    // Process images
+    // Images
     const images = (node.images.edges ?? []).map((edge: ImageEdge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null,
     }));
 
-    // Process variants
+    // Variants
     const variants = (node.variants.edges ?? []).map((edge: VariantEdge) => {
       const variant = edge.node;
       return {
@@ -65,14 +77,13 @@ export async function getProduct(
       };
     });
 
-    // Use first variant's pricing as default
     const defaultPrice = variants[0]?.price || {
       amount: "0",
       currencyCode: "EUR",
     };
+
     const defaultCompareAtPrice = variants[0]?.compareAtPrice || null;
 
-    // Build final product
     const product: Product = {
       id: node.id,
       title: node.title,

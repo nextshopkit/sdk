@@ -1,6 +1,7 @@
 export const PrimitiveTypes = [
   "single_line_text",
   "multi_line_text",
+  "rich_text",
   "integer",
   "decimal",
   "true_false",
