@@ -37,3 +37,10 @@ export interface CustomMetafieldDefinition {
   field: string; // e.g., "custom.title"
   type: ShopifyCustomFieldType;
 }
+
+export interface ResolvedMetafieldInfo {
+  key: string; // e.g., "title"
+  namespace: string; // e.g., "custom"
+  fullKey: string; // e.g., "custom.title"
+  type: ShopifyCustomFieldType;
+}

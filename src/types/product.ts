@@ -28,4 +28,5 @@ export interface Product {
 export interface FetchProductResult {
   data: Product | null;
   error: string | null;
+  fullResponse?: unknown;
 }
