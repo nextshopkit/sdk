@@ -7,14 +7,15 @@ import { renderRichText } from "./renderRichText";
 
 /**
  * Casts normalized metafields to their correct types.
- * @param normalizedMetafields - The output from normalizeMetafields.
+ * @param normalizedMetafields - Output from normalizeMetafields (nested by namespace).
  * @param definitions - Array of custom metafield definitions.
  * @param renderRichTextAsHtml - If true, rich_text fields are rendered as HTML.
- * @param transformMetafields - Optional transform function that receives:
- *        raw normalized metafields, the cast result so far, and the array of resolved definitions.
+ * @param transformMetafields - Optional post-processing function.
+ * @param resolveFiles - Whether to resolve File GIDs into file objects.
+ * @param fetchShopify - Required for resolving File types.
  * @returns A nested object with properly cast metafield values.
  */
-export function castMetafields(
+export async function castMetafields(
   normalizedMetafields: Record<string, Record<string, string>>,
   definitions: CustomMetafieldDefinition[],
   renderRichTextAsHtml: boolean,
@@ -22,16 +23,21 @@ export function castMetafields(
     raw: Record<string, Record<string, string>>,
     casted: Record<string, any>,
     definitions: ResolvedMetafieldInfo[]
-  ) => Record<string, any>
-): Record<string, any> {
+  ) => Record<string, any> | Promise<Record<string, any>>,
+  resolveFiles: boolean = false,
+  fetchShopify?: (
+    query: string,
+    variables?: Record<string, any>
+  ) => Promise<any>
+): Promise<Record<string, any>> {
   const result: Record<string, any> = {};
   const resolvedDefs: ResolvedMetafieldInfo[] = [];
+  const fileGIDs: string[] = [];
 
   for (const def of definitions) {
     const [namespace, key] = def.field.split(".");
     const rawValue = normalizedMetafields?.[namespace]?.[key];
 
-    // Build the resolved definition info for further processing.
     resolvedDefs.push({
       namespace,
       key,
@@ -39,19 +45,55 @@ export function castMetafields(
       type: def.type,
     });
 
-    if (rawValue !== undefined) {
-      result[namespace] = result[namespace] || {};
-      if (def.type === "rich_text" && renderRichTextAsHtml) {
-        console.log(`Rendering rich text for ${def.field}:`, rawValue);
-        result[namespace][key] = renderRichText(rawValue);
-      } else {
-        result[namespace][key] = castMetafieldValue(rawValue, def.type);
+    if (rawValue === undefined) continue;
+    result[namespace] = result[namespace] || {};
+
+    // Rich text HTML
+    if (def.type === "rich_text" && renderRichTextAsHtml) {
+      result[namespace][key] = renderRichText(rawValue);
+      continue;
+    }
+
+    // File types
+    if (def.type === "File" && resolveFiles) {
+      const casted = castMetafieldValue(rawValue, def.type);
+
+      if (Array.isArray(casted)) {
+        fileGIDs.push(...casted);
+      } else if (typeof casted === "string") {
+        fileGIDs.push(casted);
+      }
+
+      result[namespace][key] = casted;
+      continue;
+    }
+
+    // All other types
+    result[namespace][key] = castMetafieldValue(rawValue, def.type);
+  }
+
+  // 🧩 Resolve File GIDs to actual file objects
+  if (resolveFiles && fileGIDs.length > 0 && fetchShopify) {
+    const { resolveShopifyFiles } = await import("./resolveShopifyFiles");
+    const fileMap = await resolveShopifyFiles(fileGIDs, fetchShopify);
+
+    for (const def of definitions) {
+      if (def.type !== "File") continue;
+      const [namespace, key] = def.field.split(".");
+      const raw = result[namespace]?.[key];
+
+      if (Array.isArray(raw)) {
+        result[namespace][key] = raw.map((gid: string) => fileMap[gid] || gid);
+      } else if (typeof raw === "string") {
+        result[namespace][key] = fileMap[raw] || raw;
       }
     }
   }
 
-  if (transformMetafields) {
+  // 🧠 Final transformation
+  if (typeof transformMetafields === "function") {
     return transformMetafields(normalizedMetafields, result, resolvedDefs);
   }
+
   return result;
 }

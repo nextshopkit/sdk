@@ -61,14 +61,10 @@ interface GetProductOptions {
     handle?: string;
     customMetafields?: CustomMetafieldDefinition[];
     options: {
-        renderRichTextAsHtml?: boolean;
-        includeRawMetafields?: boolean;
-        imageLimit?: number;
-        variantLimit?: number;
-        transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any>;
         locale?: string;
-        returnFullResponse?: boolean;
-        resolveReferences?: boolean;
+        resolveFiles?: boolean;
+        renderRichTextAsHtml?: boolean;
+        transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any>;
     };
 }
 declare function getProduct(options: GetProductOptions): Promise<FetchProductResult>;

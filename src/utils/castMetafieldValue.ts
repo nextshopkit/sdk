@@ -1,5 +1,17 @@
 import { ShopifyCustomFieldType } from "../types/metafields";
 
+/**
+ * Attempts to parse raw JSON (stringified arrays).
+ */
+function tryParseJsonArray(value: string): string[] | string {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
 export function castMetafieldValue(
   rawValue: string,
   type: ShopifyCustomFieldType
@@ -44,7 +56,7 @@ export function castMetafieldValue(
     case "Collection":
     case "File":
     case "Metaobject":
-      return rawValue; // usually a Shopify GID like gid://shopify/Product/123
+      return tryParseJsonArray(rawValue);
 
     default:
       return rawValue;

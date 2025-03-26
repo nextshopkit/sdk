@@ -109,12 +109,18 @@ function buildMetafieldIdentifiers(metafields) {
 }
 
 // src/utils/normalizeMetafields.ts
-function normalizeMetafields(metafields) {
+function normalizeMetafields(metafields, definitions) {
   const result = {};
+  const keyToNamespace = /* @__PURE__ */ new Map();
+  for (const def of definitions) {
+    const [namespace, key] = def.field.split(".");
+    keyToNamespace.set(key, namespace);
+  }
   for (const field of metafields) {
     if (!field?.key)
       continue;
-    const [namespace, key] = field.key.includes(".") ? field.key.split(".") : ["global", field.key];
+    const key = field.key;
+    const namespace = keyToNamespace.get(key) || "global";
     if (!result[namespace]) {
       result[namespace] = {};
     }
@@ -124,6 +130,14 @@ function normalizeMetafields(metafields) {
 }
 
 // src/utils/castMetafieldValue.ts
+function tryParseJsonArray(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
 function castMetafieldValue(rawValue, type) {
   switch (type) {
     case "integer":
@@ -160,7 +174,7 @@ function castMetafieldValue(rawValue, type) {
     case "Collection":
     case "File":
     case "Metaobject":
-      return rawValue;
+      return tryParseJsonArray(rawValue);
     default:
       return rawValue;
   }
@@ -288,9 +302,10 @@ function buildText(el, options) {
 }
 
 // src/utils/castMetafields.ts
-function castMetafields(normalizedMetafields, definitions, renderRichTextAsHtml, transformMetafields) {
+async function castMetafields(normalizedMetafields, definitions, renderRichTextAsHtml, transformMetafields, resolveFiles = false, fetchShopify2) {
   const result = {};
   const resolvedDefs = [];
+  const fileGIDs = [];
   for (const def of definitions) {
     const [namespace, key] = def.field.split(".");
     const rawValue = normalizedMetafields?.[namespace]?.[key];
@@ -300,16 +315,41 @@ function castMetafields(normalizedMetafields, definitions, renderRichTextAsHtml,
       fullKey: def.field,
       type: def.type
     });
-    if (rawValue !== void 0) {
-      result[namespace] = result[namespace] || {};
-      if (def.type === "rich_text" && renderRichTextAsHtml) {
-        result[namespace][key] = renderRichText(rawValue);
-      } else {
-        result[namespace][key] = castMetafieldValue(rawValue, def.type);
+    if (rawValue === void 0)
+      continue;
+    result[namespace] = result[namespace] || {};
+    if (def.type === "rich_text" && renderRichTextAsHtml) {
+      result[namespace][key] = renderRichText(rawValue);
+      continue;
+    }
+    if (def.type === "File" && resolveFiles) {
+      const casted = castMetafieldValue(rawValue, def.type);
+      if (Array.isArray(casted)) {
+        fileGIDs.push(...casted);
+      } else if (typeof casted === "string") {
+        fileGIDs.push(casted);
+      }
+      result[namespace][key] = casted;
+      continue;
+    }
+    result[namespace][key] = castMetafieldValue(rawValue, def.type);
+  }
+  if (resolveFiles && fileGIDs.length > 0 && fetchShopify2) {
+    const { resolveShopifyFiles } = await import("./resolveShopifyFiles-4FVWNL22.mjs");
+    const fileMap = await resolveShopifyFiles(fileGIDs, fetchShopify2);
+    for (const def of definitions) {
+      if (def.type !== "File")
+        continue;
+      const [namespace, key] = def.field.split(".");
+      const raw = result[namespace]?.[key];
+      if (Array.isArray(raw)) {
+        result[namespace][key] = raw.map((gid) => fileMap[gid] || gid);
+      } else if (typeof raw === "string") {
+        result[namespace][key] = fileMap[raw] || raw;
       }
     }
   }
-  if (transformMetafields) {
+  if (typeof transformMetafields === "function") {
     return transformMetafields(normalizedMetafields, result, resolvedDefs);
   }
   return result;
@@ -320,22 +360,22 @@ async function getProduct(options) {
   const { handle, id, customMetafields = [], options: settings } = options;
   const {
     renderRichTextAsHtml = false,
-    includeRawMetafields = false,
-    imageLimit,
-    variantLimit,
     transformMetafields,
     locale,
-    returnFullResponse = false,
-    resolveReferences
+    resolveFiles = true
   } = settings;
+  console.log("Fetching product with options:", options);
   if (!handle && !id) {
     return { data: null, error: "Either handle or id must be provided" };
   }
   const metafieldIdentifiers = customMetafields.length > 0 ? buildMetafieldIdentifiers(customMetafields) : "";
+  console.log("Metafield Identifiers:", metafieldIdentifiers);
   const query = id ? getProductByIdQuery(metafieldIdentifiers) : getProductByHandleQuery(metafieldIdentifiers);
+  console.log("Query:", query);
   const variables = id ? { id } : { handle, locale };
   try {
     const json = await fetchShopify(query, variables);
+    console.log("full response", json);
     if (json.errors?.length) {
       return {
         data: null,
@@ -346,20 +386,24 @@ async function getProduct(options) {
     if (!node) {
       return { data: null, error: "Product not found" };
     }
-    const rawMetafields = normalizeMetafields(node.metafields || []);
-    const metafields = customMetafields.length > 0 ? castMetafields(
+    const rawMetafields = normalizeMetafields(
+      node.metafields || [],
+      customMetafields
+    );
+    console.log("raw metafields", rawMetafields);
+    const metafields = customMetafields.length > 0 ? await castMetafields(
       rawMetafields,
       customMetafields,
       renderRichTextAsHtml,
-      transformMetafields
+      transformMetafields,
+      resolveFiles,
+      fetchShopify
     ) : rawMetafields;
+    console.log("casted metafields", metafields);
     let images = (node.images.edges ?? []).map((edge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null
     }));
-    if (imageLimit && images.length > imageLimit) {
-      images = images.slice(0, imageLimit);
-    }
     let variants = (node.variants.edges ?? []).map((edge) => {
       const variant = edge.node;
       return {
@@ -370,9 +414,6 @@ async function getProduct(options) {
         compareAtPrice: variant.compareAtPriceV2 ?? null
       };
     });
-    if (variantLimit && variants.length > variantLimit) {
-      variants = variants.slice(0, variantLimit);
-    }
     const defaultPrice = variants[0]?.price || {
       amount: "0",
       currencyCode: "EUR"
@@ -390,8 +431,7 @@ async function getProduct(options) {
       compareAtPrice: defaultCompareAtPrice,
       metafields
     };
-    const fullResponse = includeRawMetafields ? json : void 0;
-    return { data: product, error: null, fullResponse };
+    return { data: product, error: null };
   } catch (err) {
     return {
       data: null,
