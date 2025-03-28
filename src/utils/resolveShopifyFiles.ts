@@ -20,8 +20,6 @@ export async function resolveShopifyFiles(
   fileIds: string[],
   fetchShopify: (query: string, variables?: Record<string, any>) => Promise<any>
 ): Promise<Record<string, any>> {
-  console.log("🧩 Resolving Files", fileIds);
-
   const resultMap: Record<string, any> = {};
   if (fileIds.length === 0) return resultMap;
 

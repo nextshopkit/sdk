@@ -19,8 +19,6 @@ export function renderRichText(
   let { scoped, classes, newLineToBreak } = options;
   let html = "";
 
-  console.log("renderRichText", schema, options);
-
   // If schema is a JSON string, parse it.
   if (typeof schema === "string") {
     try {

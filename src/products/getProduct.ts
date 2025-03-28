@@ -39,8 +39,6 @@ export async function getProduct(
     resolveFiles = true,
   } = settings;
 
-  console.log("Fetching product with options:", options);
-
   if (!handle && !id) {
     return { data: null, error: "Either handle or id must be provided" };
   }
@@ -51,20 +49,17 @@ export async function getProduct(
       ? buildMetafieldIdentifiers(customMetafields)
       : "";
 
-  console.log("Metafield Identifiers:", metafieldIdentifiers);
-
   // Choose the proper query based on the provided identifier.
   const query = id
     ? getProductByIdQuery(metafieldIdentifiers)
     : getProductByHandleQuery(metafieldIdentifiers);
 
-  console.log("Query:", query);
   // Pass locale if available (for localized fields).
   const variables = id ? { id } : { handle, locale };
 
   try {
     const json = await fetchShopify(query, variables);
-    console.log("full response", json);
+
     if (json.errors?.length) {
       return {
         data: null,
@@ -85,7 +80,6 @@ export async function getProduct(
       customMetafields
     );
     // Cast the metafields to proper JS types, optionally transforming them.
-    console.log("raw metafields", rawMetafields);
 
     const metafields =
       customMetafields.length > 0
@@ -98,8 +92,6 @@ export async function getProduct(
             fetchShopify
           )
         : rawMetafields;
-
-    console.log("casted metafields", metafields);
 
     // Process images and apply imageLimit if provided.
     let images = (node.images.edges ?? []).map((edge: ImageEdge) => ({
