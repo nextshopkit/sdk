@@ -17,7 +17,6 @@ var FILES_QUERY = `
     }
 `;
 async function resolveShopifyFiles(fileIds, fetchShopify) {
-  console.log("\u{1F9E9} Resolving Files", fileIds);
   const resultMap = {};
   if (fileIds.length === 0)
     return resultMap;
@@ -38,4 +37,4 @@ async function resolveShopifyFiles(fileIds, fetchShopify) {
 export {
   resolveShopifyFiles
 };
-//# sourceMappingURL=resolveShopifyFiles-4FVWNL22.mjs.map
+//# sourceMappingURL=resolveShopifyFiles-GCCU55PZ.mjs.map

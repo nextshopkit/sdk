@@ -20,8 +20,8 @@ export interface Product {
     altText: string | null;
   }>;
   variants: Variant[];
-  price: { amount: string; currencyCode: string };
-  compareAtPrice?: { amount: string; currencyCode: string } | null;
+  price: { amount: number; currencyCode: string };
+  compareAtPrice?: { amount: number; currencyCode: string } | null;
   metafields: Record<string, any>; // instead of unknown
 }
 

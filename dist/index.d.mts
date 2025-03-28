@@ -41,11 +41,11 @@ interface Product {
     }>;
     variants: Variant[];
     price: {
-        amount: string;
+        amount: number;
         currencyCode: string;
     };
     compareAtPrice?: {
-        amount: string;
+        amount: number;
         currencyCode: string;
     } | null;
     metafields: Record<string, any>;
@@ -64,6 +64,7 @@ interface GetProductOptions {
         locale?: string;
         resolveFiles?: boolean;
         renderRichTextAsHtml?: boolean;
+        camelizeKeys?: boolean;
         transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any>;
     };
 }

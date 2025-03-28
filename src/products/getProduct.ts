@@ -11,6 +11,7 @@ import {
 } from "../types/metafields";
 import { FetchProductResult, Product } from "../types/product";
 import { ImageEdge, VariantEdge } from "../types/edges";
+import { camelizeMetafields } from "../utils/camelizeKeys";
 
 export interface GetProductOptions {
   id?: string;
@@ -20,6 +21,7 @@ export interface GetProductOptions {
     locale?: string;
     resolveFiles?: boolean;
     renderRichTextAsHtml?: boolean;
+    camelizeKeys?: boolean;
     transformMetafields?: (
       raw: Record<string, Record<string, string>>,
       casted: Record<string, any>,
@@ -33,10 +35,11 @@ export async function getProduct(
 ): Promise<FetchProductResult> {
   const { handle, id, customMetafields = [], options: settings } = options;
   const {
-    renderRichTextAsHtml = false,
-    transformMetafields,
     locale,
+    renderRichTextAsHtml = false,
+    camelizeKeys = true,
     resolveFiles = true,
+    transformMetafields,
   } = settings;
 
   if (!handle && !id) {
@@ -81,7 +84,7 @@ export async function getProduct(
     );
     // Cast the metafields to proper JS types, optionally transforming them.
 
-    const metafields =
+    const castedMetafields =
       customMetafields.length > 0
         ? await castMetafields(
             rawMetafields,
@@ -93,29 +96,54 @@ export async function getProduct(
           )
         : rawMetafields;
 
-    // Process images and apply imageLimit if provided.
+    const metafields =
+      camelizeKeys !== false
+        ? camelizeMetafields(castedMetafields)
+        : castedMetafields;
+
     let images = (node.images.edges ?? []).map((edge: ImageEdge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null,
     }));
 
-    // Process variants and apply variantLimit if provided.
     let variants = (node.variants.edges ?? []).map((edge: VariantEdge) => {
       const variant = edge.node;
+      const variantTitle =
+        variant.title === "Default Title" ? node.title : variant.title;
+
       return {
         id: variant.id,
-        variantTitle: variant.title,
-        productTitle: variant.product?.title || node.title,
-        price: variant.priceV2,
-        compareAtPrice: variant.compareAtPriceV2 ?? null,
+        variantTitle,
+        productTitle: node.title,
+        price: {
+          amount: parseFloat(variant.priceV2.amount),
+          currencyCode: variant.priceV2.currencyCode,
+        },
+        compareAtPrice: variant.compareAtPriceV2
+          ? {
+              amount: parseFloat(variant.compareAtPriceV2.amount),
+              currencyCode: variant.compareAtPriceV2.currencyCode,
+            }
+          : null,
       };
     });
 
-    const defaultPrice = variants[0]?.price || {
-      amount: "0",
-      currencyCode: "EUR",
-    };
-    const defaultCompareAtPrice = variants[0]?.compareAtPrice || null;
+    const defaultPrice = variants[0]?.price
+      ? {
+          amount: parseFloat(variants[0].price.amount), // number
+          currencyCode: variants[0].price.currencyCode,
+        }
+      : {
+          amount: 0.0,
+          currencyCode: "EUR",
+        };
+
+    const defaultCompareAtPrice = variants[0]?.compareAtPrice
+      ? {
+          amount: parseFloat(variants[0].compareAtPrice.amount),
+          currencyCode: variants[0].compareAtPrice.currencyCode,
+        }
+      : null;
 
     const product: Product = {
       id: node.id,

@@ -184,7 +184,6 @@ function castMetafieldValue(rawValue, type) {
 function renderRichText(schema, options = {}) {
   let { scoped, classes, newLineToBreak } = options;
   let html = "";
-  console.log("renderRichText", schema, options);
   if (typeof schema === "string") {
     try {
       schema = JSON.parse(schema);
@@ -335,7 +334,7 @@ async function castMetafields(normalizedMetafields, definitions, renderRichTextA
     result[namespace][key] = castMetafieldValue(rawValue, def.type);
   }
   if (resolveFiles && fileGIDs.length > 0 && fetchShopify2) {
-    const { resolveShopifyFiles } = await import("./resolveShopifyFiles-4FVWNL22.mjs");
+    const { resolveShopifyFiles } = await import("./resolveShopifyFiles-GCCU55PZ.mjs");
     const fileMap = await resolveShopifyFiles(fileGIDs, fetchShopify2);
     for (const def of definitions) {
       if (def.type !== "File")
@@ -355,27 +354,41 @@ async function castMetafields(normalizedMetafields, definitions, renderRichTextA
   return result;
 }
 
+// src/utils/camelizeKeys.ts
+import { camelCase } from "lodash";
+function camelizeMetafields(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(camelizeMetafields);
+  }
+  if (obj !== null && typeof obj === "object") {
+    return Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [
+        camelCase(key),
+        camelizeMetafields(value)
+      ])
+    );
+  }
+  return obj;
+}
+
 // src/products/getProduct.ts
 async function getProduct(options) {
   const { handle, id, customMetafields = [], options: settings } = options;
   const {
-    renderRichTextAsHtml = false,
-    transformMetafields,
     locale,
-    resolveFiles = true
+    renderRichTextAsHtml = false,
+    camelizeKeys = true,
+    resolveFiles = true,
+    transformMetafields
   } = settings;
-  console.log("Fetching product with options:", options);
   if (!handle && !id) {
     return { data: null, error: "Either handle or id must be provided" };
   }
   const metafieldIdentifiers = customMetafields.length > 0 ? buildMetafieldIdentifiers(customMetafields) : "";
-  console.log("Metafield Identifiers:", metafieldIdentifiers);
   const query = id ? getProductByIdQuery(metafieldIdentifiers) : getProductByHandleQuery(metafieldIdentifiers);
-  console.log("Query:", query);
   const variables = id ? { id } : { handle, locale };
   try {
     const json = await fetchShopify(query, variables);
-    console.log("full response", json);
     if (json.errors?.length) {
       return {
         data: null,
@@ -390,8 +403,7 @@ async function getProduct(options) {
       node.metafields || [],
       customMetafields
     );
-    console.log("raw metafields", rawMetafields);
-    const metafields = customMetafields.length > 0 ? await castMetafields(
+    const castedMetafields = customMetafields.length > 0 ? await castMetafields(
       rawMetafields,
       customMetafields,
       renderRichTextAsHtml,
@@ -399,26 +411,40 @@ async function getProduct(options) {
       resolveFiles,
       fetchShopify
     ) : rawMetafields;
-    console.log("casted metafields", metafields);
+    const metafields = camelizeKeys !== false ? camelizeMetafields(castedMetafields) : castedMetafields;
     let images = (node.images.edges ?? []).map((edge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null
     }));
     let variants = (node.variants.edges ?? []).map((edge) => {
       const variant = edge.node;
+      const variantTitle = variant.title === "Default Title" ? node.title : variant.title;
       return {
         id: variant.id,
-        variantTitle: variant.title,
-        productTitle: variant.product?.title || node.title,
-        price: variant.priceV2,
-        compareAtPrice: variant.compareAtPriceV2 ?? null
+        variantTitle,
+        productTitle: node.title,
+        price: {
+          amount: parseFloat(variant.priceV2.amount),
+          currencyCode: variant.priceV2.currencyCode
+        },
+        compareAtPrice: variant.compareAtPriceV2 ? {
+          amount: parseFloat(variant.compareAtPriceV2.amount),
+          currencyCode: variant.compareAtPriceV2.currencyCode
+        } : null
       };
     });
-    const defaultPrice = variants[0]?.price || {
-      amount: "0",
+    const defaultPrice = variants[0]?.price ? {
+      amount: parseFloat(variants[0].price.amount),
+      // number
+      currencyCode: variants[0].price.currencyCode
+    } : {
+      amount: 0,
       currencyCode: "EUR"
     };
-    const defaultCompareAtPrice = variants[0]?.compareAtPrice || null;
+    const defaultCompareAtPrice = variants[0]?.compareAtPrice ? {
+      amount: parseFloat(variants[0].compareAtPrice.amount),
+      currencyCode: variants[0].compareAtPrice.currencyCode
+    } : null;
     const product = {
       id: node.id,
       title: node.title,
