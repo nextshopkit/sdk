@@ -4,16 +4,3 @@ export interface ImageEdge {
     altText: string | null;
   };
 }
-
-export interface VariantEdge {
-  node: {
-    id: string;
-    title: string;
-    priceV2: { amount: string; currencyCode: string };
-    compareAtPriceV2?: { amount: string; currencyCode: string } | null;
-    product: {
-      title: string;
-      handle: string;
-    };
-  };
-}

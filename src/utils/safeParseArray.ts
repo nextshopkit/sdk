@@ -1,9 +1,4 @@
-export function safeParseArray(value: string | null | undefined): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+// utils/safeParseArray.ts
+export function safeParseArray<T = any>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
 }

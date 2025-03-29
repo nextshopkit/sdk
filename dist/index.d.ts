@@ -18,11 +18,11 @@ interface Variant {
     variantTitle: string;
     productTitle: string;
     price: {
-        amount: string;
+        amount: number;
         currencyCode: string;
     };
     compareAtPrice?: {
-        amount: string;
+        amount: number;
         currencyCode: string;
     } | null;
 }
@@ -55,7 +55,6 @@ interface FetchProductResult {
     error: string | null;
     fullResponse?: unknown;
 }
-
 interface GetProductOptions {
     id?: string;
     handle?: string;
@@ -68,6 +67,73 @@ interface GetProductOptions {
         transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any>;
     };
 }
+
 declare function getProduct(options: GetProductOptions): Promise<FetchProductResult>;
 
-export { GetProductOptions, getProduct };
+interface ProductsPageInfo {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    endCursor: string | null;
+    startCursor: string | null;
+}
+interface FilterValue {
+    id: string;
+    label: string;
+    count: number;
+}
+interface FilterGroup {
+    id: string;
+    label: string;
+    values: FilterValue[];
+}
+interface FetchProductsResult {
+    data: Product[];
+    pageInfo: ProductsPageInfo;
+    availableFilters?: FilterGroup[];
+    error: string | null;
+}
+type ProductFilter = {
+    available?: boolean;
+} | {
+    variantOption?: {
+        name: string;
+        value: string;
+    };
+} | {
+    productMetafield: {
+        namespace: string;
+        key: string;
+        value: string;
+    };
+} | {
+    productTag: string;
+} | {
+    productType: string;
+} | {
+    collection?: string;
+} | {
+    price: {
+        min?: number;
+        max?: number;
+    };
+};
+type ProductSortKey = "TITLE" | "PRICE" | "BEST_SELLING" | "CREATED" | "ID" | "MANUAL" | "RELEVANCE";
+interface GetProductsOptions {
+    collectionHandle: string;
+    limit?: number;
+    cursor?: string;
+    reverse?: boolean;
+    sortKey?: ProductSortKey;
+    filters?: ProductFilter[];
+    customMetafields?: CustomMetafieldDefinition[];
+    options?: {
+        resolveFiles?: boolean;
+        renderRichTextAsHtml?: boolean;
+        transformMetafields?: (raw: Record<string, Record<string, string>>, casted: Record<string, any>, definitions: ResolvedMetafieldInfo[]) => Record<string, any> | Promise<Record<string, any>>;
+        camelizeKeys?: boolean;
+    };
+}
+
+declare function getProducts(config: GetProductsOptions): Promise<FetchProductsResult>;
+
+export { getProduct, getProducts };

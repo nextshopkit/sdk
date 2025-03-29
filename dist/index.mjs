@@ -1,9 +1,19 @@
 // src/graphql/client.ts
 var SHOPIFY_GRAPHQL_URL = process.env.SHOPIFY_GRAPHQL_URL;
 var SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+var REQUIRED_API_VERSION = "2025-01";
 async function fetchShopify(query, variables = {}) {
   if (!SHOPIFY_GRAPHQL_URL || !SHOPIFY_ACCESS_TOKEN) {
     throw new Error("Missing Shopify API credentials");
+  }
+  const versionMatch = SHOPIFY_GRAPHQL_URL.match(
+    /\/api\/([\d-]+)\/graphql\.json/
+  );
+  const currentVersion = versionMatch?.[1];
+  if (currentVersion && currentVersion !== REQUIRED_API_VERSION) {
+    console.warn(
+      `\u26A0\uFE0F Shopify Storefront API version "${currentVersion}" detected. This SDK requires "${REQUIRED_API_VERSION}" for full compatibility. Some features may not work as expected.`
+    );
   }
   const res = await fetch(SHOPIFY_GRAPHQL_URL, {
     method: "POST",
@@ -129,8 +139,8 @@ function normalizeMetafields(metafields, definitions) {
   return result;
 }
 
-// src/utils/castMetafieldValue.ts
-function tryParseJsonArray(value) {
+// src/utils/parseStringifiedArray.ts
+function parseStringifiedArray(value) {
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed : value;
@@ -138,6 +148,8 @@ function tryParseJsonArray(value) {
     return value;
   }
 }
+
+// src/utils/castMetafieldValue.ts
 function castMetafieldValue(rawValue, type) {
   switch (type) {
     case "integer":
@@ -174,7 +186,7 @@ function castMetafieldValue(rawValue, type) {
     case "Collection":
     case "File":
     case "Metaobject":
-      return tryParseJsonArray(rawValue);
+      return parseStringifiedArray(rawValue);
     default:
       return rawValue;
   }
@@ -354,6 +366,11 @@ async function castMetafields(normalizedMetafields, definitions, renderRichTextA
   return result;
 }
 
+// src/utils/safeParseArray.ts
+function safeParseArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 // src/utils/camelizeKeys.ts
 import { camelCase } from "lodash";
 function camelizeMetafields(obj) {
@@ -412,29 +429,31 @@ async function getProduct(options) {
       fetchShopify
     ) : rawMetafields;
     const metafields = camelizeKeys !== false ? camelizeMetafields(castedMetafields) : castedMetafields;
-    let images = (node.images.edges ?? []).map((edge) => ({
+    let images = safeParseArray(node.images?.edges).map((edge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null
     }));
-    let variants = (node.variants.edges ?? []).map((edge) => {
-      const variant = edge.node;
-      const variantTitle = variant.title === "Default Title" ? node.title : variant.title;
-      return {
-        id: variant.id,
-        variantTitle,
-        productTitle: node.title,
-        price: {
-          amount: parseFloat(variant.priceV2.amount),
-          currencyCode: variant.priceV2.currencyCode
-        },
-        compareAtPrice: variant.compareAtPriceV2 ? {
-          amount: parseFloat(variant.compareAtPriceV2.amount),
-          currencyCode: variant.compareAtPriceV2.currencyCode
-        } : null
-      };
-    });
+    const variants = safeParseArray(node.variants?.edges).map(
+      (edge) => {
+        const variant = edge.node;
+        return {
+          id: variant.id,
+          productTitle: variant.product?.title || node.title,
+          variantTitle: variant.title === "Default Title" ? node.title : variant.title,
+          price: {
+            amount: parseFloat(variant.priceV2.amount),
+            // number
+            currencyCode: variant.priceV2.currencyCode
+          },
+          compareAtPrice: variant.compareAtPriceV2 ? {
+            amount: parseFloat(variant.compareAtPriceV2.amount),
+            currencyCode: variant.compareAtPriceV2?.currencyCode
+          } : null
+        };
+      }
+    );
     const defaultPrice = variants[0]?.price ? {
-      amount: parseFloat(variants[0].price.amount),
+      amount: variants[0].price.amount,
       // number
       currencyCode: variants[0].price.currencyCode
     } : {
@@ -442,7 +461,7 @@ async function getProduct(options) {
       currencyCode: "EUR"
     };
     const defaultCompareAtPrice = variants[0]?.compareAtPrice ? {
-      amount: parseFloat(variants[0].compareAtPrice.amount),
+      amount: variants[0].compareAtPrice.amount,
       currencyCode: variants[0].compareAtPrice.currencyCode
     } : null;
     const product = {
@@ -465,7 +484,217 @@ async function getProduct(options) {
     };
   }
 }
+
+// src/graphql/queries/getCollectionProducts.ts
+function getCollectionProductsQuery(limit, metafieldIdentifiers, hasFilters) {
+  return `
+    query getCollectionProducts(
+      $handle: String!,
+      $cursor: String,
+      ${hasFilters ? "$filters: [ProductFilter!]," : ""}
+      $sortKey: ProductCollectionSortKeys,
+      $reverse: Boolean
+    ) {
+      collection(handle: $handle) {
+        id
+        title
+        handle
+        products(
+          first: ${limit},
+          after: $cursor,
+          sortKey: $sortKey,
+          reverse: $reverse
+          ${hasFilters ? "filters: $filters," : ""}
+        ) {
+          pageInfo {
+            hasNextPage
+            hasPreviousPage
+            startCursor
+            endCursor
+          }
+          filters {
+            id
+            label
+            values {
+              id
+              label
+              count
+            }
+          }
+          edges {
+            node {
+              id
+              title
+              handle
+              descriptionHtml
+              featuredImage {
+                originalSrc
+                altText
+              }
+              images(first: 10) {
+                edges {
+                  node {
+                    originalSrc
+                    altText
+                  }
+                }
+              }
+              variants(first: 10) {
+                edges {
+                  node {
+                    id
+                    title
+                    priceV2 { amount currencyCode }
+                    compareAtPriceV2 { amount currencyCode }
+                    product { title handle }
+                  }
+                }
+              }
+              metafields(identifiers: [${metafieldIdentifiers}]) {
+                key
+                value
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+}
+
+// src/utils/formatAvailableFilters.ts
+function formatAvailableFilters(rawFilters) {
+  return rawFilters.map((group) => ({
+    id: group.id,
+    label: group.label,
+    values: safeParseArray(group.values).map((value) => ({
+      id: value.id,
+      label: value.label,
+      count: value.count
+    }))
+  }));
+}
+
+// src/products/getProducts.ts
+async function getProducts(config) {
+  const {
+    collectionHandle,
+    limit = 12,
+    cursor,
+    reverse = false,
+    sortKey = "RELEVANCE",
+    filters = [],
+    customMetafields = [],
+    options: {
+      resolveFiles = true,
+      renderRichTextAsHtml = false,
+      transformMetafields,
+      camelizeKeys = true
+    } = {}
+  } = config;
+  const metafieldIdentifiers = customMetafields.length > 0 ? buildMetafieldIdentifiers(customMetafields) : "";
+  const query = getCollectionProductsQuery(
+    limit,
+    metafieldIdentifiers,
+    filters.length > 0
+  );
+  const variables = {
+    handle: collectionHandle,
+    cursor,
+    reverse,
+    sortKey,
+    filters
+  };
+  try {
+    const json = await fetchShopify(query, variables);
+    const collection = json.data?.collection;
+    if (!collection || !collection.products) {
+      return {
+        data: [],
+        pageInfo: {
+          hasNextPage: false,
+          hasPreviousPage: false,
+          endCursor: null,
+          startCursor: null
+        },
+        error: "Collection or products not found"
+      };
+    }
+    const edges = safeParseArray(collection.products.edges);
+    const products = [];
+    for (const edge of edges) {
+      const node = edge.node;
+      const rawMetafields = normalizeMetafields(
+        node.metafields || [],
+        customMetafields
+      );
+      const castedMetafields = customMetafields.length > 0 ? await castMetafields(
+        rawMetafields,
+        customMetafields,
+        renderRichTextAsHtml,
+        transformMetafields,
+        resolveFiles,
+        fetchShopify
+      ) : rawMetafields;
+      const metafields = camelizeKeys !== false ? camelizeMetafields(castedMetafields) : castedMetafields;
+      const variants = safeParseArray(node.variants?.edges).map(
+        (edge2) => {
+          const variant = edge2.node;
+          return {
+            id: variant.id,
+            productTitle: variant.product?.title || node.title,
+            variantTitle: variant.title === "Default Title" ? node.title : variant.title,
+            price: {
+              amount: parseFloat(variant.priceV2.amount),
+              // number
+              currencyCode: variant.priceV2.currencyCode
+            },
+            compareAtPrice: variant.compareAtPriceV2 ? {
+              amount: parseFloat(variant.compareAtPriceV2.amount),
+              currencyCode: variant.compareAtPriceV2?.currencyCode
+            } : null
+          };
+        }
+      );
+      const product = {
+        id: node.id,
+        title: node.title,
+        handle: node.handle,
+        descriptionHtml: node.descriptionHtml || "",
+        featuredImage: node.featuredImage || null,
+        images: safeParseArray(node.images?.edges).map((edge2) => edge2.node),
+        variants,
+        price: {
+          amount: variants[0]?.price?.amount,
+          currencyCode: variants[0]?.price?.currencyCode
+        },
+        compareAtPrice: variants[0]?.compareAtPrice ? {
+          amount: variants[0].compareAtPrice.amount,
+          currencyCode: variants[0].compareAtPrice.currencyCode
+        } : null,
+        metafields
+      };
+      products.push(product);
+    }
+    const pageInfo = collection.products.pageInfo;
+    const rawFilters = collection.products.filters || [];
+    const availableFilters = formatAvailableFilters(rawFilters);
+    return { data: products, pageInfo, availableFilters, error: null };
+  } catch (error) {
+    return {
+      data: [],
+      pageInfo: {
+        hasNextPage: false,
+        hasPreviousPage: false,
+        endCursor: null,
+        startCursor: null
+      },
+      error: error instanceof Error ? error.message : "Unexpected error"
+    };
+  }
+}
 export {
-  getProduct
+  getProduct,
+  getProducts
 };
 //# sourceMappingURL=index.mjs.map

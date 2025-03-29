@@ -1,34 +1,24 @@
+// GRAPHQL
 import { fetchShopify } from "../graphql/client";
 import { getProductByHandleQuery } from "../graphql/queries/getProductByHandle";
 import { getProductByIdQuery } from "../graphql/queries/getProductById";
+
+// UTILS
 import { buildMetafieldIdentifiers } from "../utils/buildMetafieldIdentifiers";
 import { normalizeMetafields } from "../utils/normalizeMetafields";
 import { castMetafields } from "../utils/castMetafields";
 import { safeParseArray } from "../utils/safeParseArray";
-import {
-  CustomMetafieldDefinition,
-  ResolvedMetafieldInfo,
-} from "../types/metafields";
-import { FetchProductResult, Product } from "../types/product";
-import { ImageEdge, VariantEdge } from "../types/edges";
 import { camelizeMetafields } from "../utils/camelizeKeys";
 
-export interface GetProductOptions {
-  id?: string;
-  handle?: string;
-  customMetafields?: CustomMetafieldDefinition[];
-  options: {
-    locale?: string;
-    resolveFiles?: boolean;
-    renderRichTextAsHtml?: boolean;
-    camelizeKeys?: boolean;
-    transformMetafields?: (
-      raw: Record<string, Record<string, string>>,
-      casted: Record<string, any>,
-      definitions: ResolvedMetafieldInfo[]
-    ) => Record<string, any>;
-  };
-}
+// TYPES
+import {
+  FetchProductResult,
+  GetProductOptions,
+  Product,
+  Variant,
+  VariantEdge,
+} from "../types/product";
+import { ImageEdge } from "../types/edges";
 
 export async function getProduct(
   options: GetProductOptions
@@ -101,36 +91,36 @@ export async function getProduct(
         ? camelizeMetafields(castedMetafields)
         : castedMetafields;
 
-    let images = (node.images.edges ?? []).map((edge: ImageEdge) => ({
+    let images = safeParseArray<ImageEdge>(node.images?.edges).map((edge) => ({
       originalSrc: edge.node.originalSrc,
       altText: edge.node.altText ?? null,
     }));
 
-    let variants = (node.variants.edges ?? []).map((edge: VariantEdge) => {
-      const variant = edge.node;
-      const variantTitle =
-        variant.title === "Default Title" ? node.title : variant.title;
-
-      return {
-        id: variant.id,
-        variantTitle,
-        productTitle: node.title,
-        price: {
-          amount: parseFloat(variant.priceV2.amount),
-          currencyCode: variant.priceV2.currencyCode,
-        },
-        compareAtPrice: variant.compareAtPriceV2
-          ? {
-              amount: parseFloat(variant.compareAtPriceV2.amount),
-              currencyCode: variant.compareAtPriceV2.currencyCode,
-            }
-          : null,
-      };
-    });
+    const variants: Variant[] = safeParseArray(node.variants?.edges).map(
+      (edge: VariantEdge) => {
+        const variant = edge.node;
+        return {
+          id: variant.id,
+          productTitle: variant.product?.title || node.title,
+          variantTitle:
+            variant.title === "Default Title" ? node.title : variant.title,
+          price: {
+            amount: parseFloat(variant.priceV2.amount), // number
+            currencyCode: variant.priceV2.currencyCode,
+          },
+          compareAtPrice: variant.compareAtPriceV2
+            ? {
+                amount: parseFloat(variant.compareAtPriceV2.amount),
+                currencyCode: variant.compareAtPriceV2?.currencyCode,
+              }
+            : null,
+        };
+      }
+    );
 
     const defaultPrice = variants[0]?.price
       ? {
-          amount: parseFloat(variants[0].price.amount), // number
+          amount: variants[0].price.amount, // number
           currencyCode: variants[0].price.currencyCode,
         }
       : {
@@ -140,7 +130,7 @@ export async function getProduct(
 
     const defaultCompareAtPrice = variants[0]?.compareAtPrice
       ? {
-          amount: parseFloat(variants[0].compareAtPrice.amount),
+          amount: variants[0].compareAtPrice.amount,
           currencyCode: variants[0].compareAtPrice.currencyCode,
         }
       : null;
