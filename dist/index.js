@@ -25,12 +25,12 @@ var resolveShopifyFiles_exports = {};
 __export(resolveShopifyFiles_exports, {
   resolveShopifyFiles: () => resolveShopifyFiles
 });
-async function resolveShopifyFiles(fileIds, fetchShopify2) {
+async function resolveShopifyFiles(fileIds, fetchShopify) {
   const resultMap = {};
   if (fileIds.length === 0)
     return resultMap;
   try {
-    const res = await fetchShopify2(FILES_QUERY, { ids: fileIds });
+    const res = await fetchShopify(FILES_QUERY, { ids: fileIds });
     const nodes = res.data?.nodes || [];
     for (const file of nodes) {
       if (file?.id) {
@@ -70,42 +70,11 @@ var init_resolveShopifyFiles = __esm({
 // src/index.ts
 var src_exports = {};
 __export(src_exports, {
+  createShopifyClient: () => createShopifyClient,
   getProduct: () => getProduct,
   getProducts: () => getProducts
 });
 module.exports = __toCommonJS(src_exports);
-
-// src/graphql/client.ts
-var SHOPIFY_GRAPHQL_URL = process.env.SHOPIFY_GRAPHQL_URL;
-var SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-var REQUIRED_API_VERSION = "2025-01";
-async function fetchShopify(query, variables = {}) {
-  if (!SHOPIFY_GRAPHQL_URL || !SHOPIFY_ACCESS_TOKEN) {
-    throw new Error("Missing Shopify API credentials");
-  }
-  const versionMatch = SHOPIFY_GRAPHQL_URL.match(
-    /\/api\/([\d-]+)\/graphql\.json/
-  );
-  const currentVersion = versionMatch?.[1];
-  if (currentVersion && currentVersion !== REQUIRED_API_VERSION) {
-    console.warn(
-      `\u26A0\uFE0F Shopify Storefront API version "${currentVersion}" detected. This SDK requires "${REQUIRED_API_VERSION}" for full compatibility. Some features may not work as expected.`
-    );
-  }
-  const res = await fetch(SHOPIFY_GRAPHQL_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Storefront-Access-Token": SHOPIFY_ACCESS_TOKEN
-    },
-    body: JSON.stringify({ query, variables })
-  });
-  const json = await res.json();
-  if (json.errors) {
-    throw new Error(json.errors[0]?.message || "GraphQL error");
-  }
-  return json;
-}
 
 // src/graphql/queries/getProductByHandle.ts
 var getProductByHandleQuery = (metafieldIdentifiers) => `
@@ -390,7 +359,7 @@ function buildText(el, options) {
 }
 
 // src/utils/castMetafields.ts
-async function castMetafields(normalizedMetafields, definitions, renderRichTextAsHtml, transformMetafields, resolveFiles = false, fetchShopify2) {
+async function castMetafields(normalizedMetafields, definitions, renderRichTextAsHtml, transformMetafields, resolveFiles = false, fetchShopify) {
   const result = {};
   const resolvedDefs = [];
   const fileGIDs = [];
@@ -422,9 +391,9 @@ async function castMetafields(normalizedMetafields, definitions, renderRichTextA
     }
     result[namespace][key] = castMetafieldValue(rawValue, def.type);
   }
-  if (resolveFiles && fileGIDs.length > 0 && fetchShopify2) {
+  if (resolveFiles && fileGIDs.length > 0 && fetchShopify) {
     const { resolveShopifyFiles: resolveShopifyFiles2 } = await Promise.resolve().then(() => (init_resolveShopifyFiles(), resolveShopifyFiles_exports));
-    const fileMap = await resolveShopifyFiles2(fileGIDs, fetchShopify2);
+    const fileMap = await resolveShopifyFiles2(fileGIDs, fetchShopify);
     for (const def of definitions) {
       if (def.type !== "File")
         continue;
@@ -466,7 +435,7 @@ function camelizeMetafields(obj) {
 }
 
 // src/products/getProduct.ts
-async function getProduct(options) {
+async function getProduct(fetchShopify, options) {
   const { handle, id, customMetafields = [], options: settings } = options;
   const {
     locale,
@@ -506,41 +475,35 @@ async function getProduct(options) {
       fetchShopify
     ) : rawMetafields;
     const metafields = camelizeKeys !== false ? camelizeMetafields(castedMetafields) : castedMetafields;
-    let images = safeParseArray(node.images?.edges).map((edge) => ({
-      originalSrc: edge.node.originalSrc,
-      altText: edge.node.altText ?? null
-    }));
-    const variants = safeParseArray(node.variants?.edges).map(
-      (edge) => {
-        const variant = edge.node;
-        return {
-          id: variant.id,
-          productTitle: variant.product?.title || node.title,
-          variantTitle: variant.title === "Default Title" ? node.title : variant.title,
-          price: {
-            amount: parseFloat(variant.priceV2.amount),
-            // number
-            currencyCode: variant.priceV2.currencyCode
-          },
-          compareAtPrice: variant.compareAtPriceV2 ? {
-            amount: parseFloat(variant.compareAtPriceV2.amount),
-            currencyCode: variant.compareAtPriceV2?.currencyCode
-          } : null
-        };
-      }
+    const images = safeParseArray(node.images?.edges).map(
+      (edge) => ({
+        originalSrc: edge.node.originalSrc,
+        altText: edge.node.altText ?? null
+      })
     );
-    const defaultPrice = variants[0]?.price ? {
-      amount: variants[0].price.amount,
-      // number
-      currencyCode: variants[0].price.currencyCode
-    } : {
+    const variants = safeParseArray(
+      node.variants?.edges
+    ).map((edge) => {
+      const variant = edge.node;
+      return {
+        id: variant.id,
+        productTitle: variant.product?.title || node.title,
+        variantTitle: variant.title === "Default Title" ? node.title : variant.title,
+        price: {
+          amount: parseFloat(variant.priceV2.amount),
+          currencyCode: variant.priceV2.currencyCode
+        },
+        compareAtPrice: variant.compareAtPriceV2 ? {
+          amount: parseFloat(variant.compareAtPriceV2.amount),
+          currencyCode: variant.compareAtPriceV2.currencyCode
+        } : null
+      };
+    });
+    const defaultPrice = variants[0]?.price ?? {
       amount: 0,
       currencyCode: "EUR"
     };
-    const defaultCompareAtPrice = variants[0]?.compareAtPrice ? {
-      amount: variants[0].compareAtPrice.amount,
-      currencyCode: variants[0].compareAtPrice.currencyCode
-    } : null;
+    const defaultCompareAtPrice = variants[0]?.compareAtPrice ?? null;
     const product = {
       id: node.id,
       title: node.title,
@@ -560,6 +523,19 @@ async function getProduct(options) {
       error: err instanceof Error ? err.message : "Unexpected error"
     };
   }
+}
+
+// src/utils/formatAvailableFilters.ts
+function formatAvailableFilters(rawFilters) {
+  return rawFilters.map((group) => ({
+    id: group.id,
+    label: group.label,
+    values: safeParseArray(group.values).map((value) => ({
+      id: value.id,
+      label: value.label,
+      count: value.count
+    }))
+  }));
 }
 
 // src/graphql/queries/getCollectionProducts.ts
@@ -639,21 +615,8 @@ function getCollectionProductsQuery(limit, metafieldIdentifiers, hasFilters) {
   `;
 }
 
-// src/utils/formatAvailableFilters.ts
-function formatAvailableFilters(rawFilters) {
-  return rawFilters.map((group) => ({
-    id: group.id,
-    label: group.label,
-    values: safeParseArray(group.values).map((value) => ({
-      id: value.id,
-      label: value.label,
-      count: value.count
-    }))
-  }));
-}
-
 // src/products/getProducts.ts
-async function getProducts(config) {
+async function getProducts(fetchShopify, config) {
   const {
     collectionHandle,
     limit = 12,
@@ -723,12 +686,11 @@ async function getProducts(config) {
             variantTitle: variant.title === "Default Title" ? node.title : variant.title,
             price: {
               amount: parseFloat(variant.priceV2.amount),
-              // number
               currencyCode: variant.priceV2.currencyCode
             },
             compareAtPrice: variant.compareAtPriceV2 ? {
               amount: parseFloat(variant.compareAtPriceV2.amount),
-              currencyCode: variant.compareAtPriceV2?.currencyCode
+              currencyCode: variant.compareAtPriceV2.currencyCode
             } : null
           };
         }
@@ -770,8 +732,36 @@ async function getProducts(config) {
     };
   }
 }
+
+// src/createClient.ts
+function createShopifyClient(config) {
+  const apiVersion = config.apiVersion || "2025-01";
+  const endpoint = `https://${config.shop}/api/${apiVersion}/graphql.json`;
+  async function fetchShopify(query, variables = {}) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Storefront-Access-Token": config.token
+      },
+      body: JSON.stringify({ query, variables })
+    });
+    const json = await res.json();
+    if (json.errors) {
+      throw new Error(json.errors[0]?.message || "Shopify GraphQL error");
+    }
+    return json;
+  }
+  return {
+    fetchShopify,
+    // internal
+    getProduct: (args) => getProduct(fetchShopify, args),
+    getProducts: (args) => getProducts(fetchShopify, args)
+  };
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  createShopifyClient,
   getProduct,
   getProducts
 });

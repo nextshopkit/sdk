@@ -68,8 +68,6 @@ interface GetProductOptions {
     };
 }
 
-declare function getProduct(options: GetProductOptions): Promise<FetchProductResult>;
-
 interface ProductsPageInfo {
     hasNextPage: boolean;
     hasPreviousPage: boolean;
@@ -134,6 +132,21 @@ interface GetProductsOptions {
     };
 }
 
-declare function getProducts(config: GetProductsOptions): Promise<FetchProductsResult>;
+interface ShopifyClientConfig {
+    shop: string;
+    token: string;
+    apiVersion?: string;
+}
+declare function createShopifyClient(config: ShopifyClientConfig): {
+    fetchShopify: <T = any>(query: string, variables?: Record<string, any>) => Promise<T>;
+    getProduct: (args: GetProductOptions) => Promise<FetchProductResult>;
+    getProducts: (args: GetProductsOptions) => Promise<FetchProductsResult>;
+};
 
-export { getProduct, getProducts };
+type FetchShopify = (query: string, variables?: Record<string, any>) => Promise<any>;
+
+declare function getProduct(fetchShopify: FetchShopify, options: GetProductOptions): Promise<FetchProductResult>;
+
+declare function getProducts(fetchShopify: FetchShopify, config: GetProductsOptions): Promise<FetchProductsResult>;
+
+export { FetchProductResult, FetchProductsResult, GetProductOptions, GetProductsOptions, ShopifyClientConfig, createShopifyClient, getProduct, getProducts };

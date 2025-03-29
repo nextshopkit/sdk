@@ -1,7 +1,3 @@
-// GRAPHQL
-import { fetchShopify } from "../graphql/client";
-import { getCollectionProductsQuery } from "../graphql/queries/getCollectionProducts";
-
 // UTILS
 import { buildMetafieldIdentifiers } from "../utils/buildMetafieldIdentifiers";
 import { normalizeMetafields } from "../utils/normalizeMetafields";
@@ -9,8 +5,10 @@ import { castMetafields } from "../utils/castMetafields";
 import { safeParseArray } from "../utils/safeParseArray";
 import { camelizeMetafields } from "../utils/camelizeKeys";
 import { formatAvailableFilters } from "../utils/formatAvailableFilters";
+import { getCollectionProductsQuery } from "../graphql/queries/getCollectionProducts";
 
 // TYPES
+import type { FetchShopify } from "../types/shared";
 import type { Product, Variant, VariantEdge } from "../types/product";
 import type {
   FetchProductsResult,
@@ -20,6 +18,7 @@ import type {
 } from "../types/products";
 
 export async function getProducts(
+  fetchShopify: FetchShopify,
   config: GetProductsOptions
 ): Promise<FetchProductsResult> {
   const {
@@ -111,13 +110,13 @@ export async function getProducts(
             variantTitle:
               variant.title === "Default Title" ? node.title : variant.title,
             price: {
-              amount: parseFloat(variant.priceV2.amount), // number
+              amount: parseFloat(variant.priceV2.amount),
               currencyCode: variant.priceV2.currencyCode,
             },
             compareAtPrice: variant.compareAtPriceV2
               ? {
                   amount: parseFloat(variant.compareAtPriceV2.amount),
-                  currencyCode: variant.compareAtPriceV2?.currencyCode,
+                  currencyCode: variant.compareAtPriceV2.currencyCode,
                 }
               : null,
           };
